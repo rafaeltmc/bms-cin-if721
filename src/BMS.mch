@@ -3,7 +3,8 @@
 MACHINE
     BMS
 DEFINITIONS 
-    "INPUTS.def"
+    "INPUTS.def";
+    "SENSORS_RANGE.def"
 SETS
     SYS_STATES = {
         OFF,
@@ -12,7 +13,7 @@ SETS
         ISSUE, 
         CRITICAL
     };
-    
+
     INPUTS_TYPE = {
         SOLAR_CELL_ARRAY_VOLTAGE,
         SOLAR_CELL_ARRAY_CURRENT,
@@ -25,6 +26,13 @@ SETS
     }
 PROPERTIES
     INPUTS : NATURAL +->> INPUTS_TYPE
+    & ! param . (param : {
+            VOLTAGE_MIN,
+	        VOLTAGE_MAX,
+        	CURRENT_MIN,
+        	CURRENT_MAX,
+        	TEMPERATURE_MIN,
+        	TEMPERATURE_MAX} => param : NATURAL)
 VARIABLES
     sys_state,
     sys_start_missing_inputs,
@@ -37,6 +45,21 @@ INVARIANT
     & inputs_last_value : dom(INPUTS) +-> NATURAL
     
     & sys_start_missing_inputs /\ dom(inputs_last_value) = {}
+    
+    // Garantee that sensor values does not exceed its range
+    & ! (sensor_id, sensor_value) 
+        . (sensor_id |-> sensor_value : inputs_last_value 
+            => ((INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_VOLTAGE, 
+                                     BATTERY_PACK_VOLTAGE, 
+                                     SINGLE_BATTERY_VOLTAGE} 
+                    => (sensor_value >= VOLTAGE_MIN & sensor_value <= VOLTAGE_MAX))
+                & (INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_CURRENT, 
+                                        BATTERY_PACK_CURRENT, 
+                                        SINGLE_BATTERY_CURRENT, 
+                                        LOAD_CURRENT_DRAIN} 
+                    => (sensor_value >= CURRENT_MIN & sensor_value <= CURRENT_MAX))
+                & (INPUTS(sensor_id) : {BATTERY_PACK_TEMPERATURE} 
+                    => (sensor_value >= TEMPERATURE_MIN & sensor_value <= TEMPERATURE_MAX))))
 INITIALISATION
     sys_state := OFF
     || sys_start_missing_inputs := {}
@@ -71,6 +94,87 @@ OPERATIONS
         sys_state /= OFF
     THEN
         sys_state := OFF
+    END;
+    
+    /*
+     * Set first input readings
+     *
+     * Pre: The system must be in START state
+     *      The id must be valid and not have an initial value
+     * 
+     * Updates a voltage input value based on sensor id
+     */
+    setSensorValue(sensor_id, value) =
+    PRE
+        sys_state = START
+        & sensor_id : dom(INPUTS)
+        & sensor_id : sys_start_missing_inputs
+        & value : NATURAL
+        & (INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_VOLTAGE, 
+                                BATTERY_PACK_VOLTAGE, 
+                                SINGLE_BATTERY_VOLTAGE}  => (value >= VOLTAGE_MIN & value <= VOLTAGE_MAX))
+        & (INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_CURRENT, 
+                                BATTERY_PACK_CURRENT, 
+                                SINGLE_BATTERY_CURRENT, 
+                                LOAD_CURRENT_DRAIN}  => (value >= CURRENT_MIN & value <= CURRENT_MAX))
+        & (INPUTS(sensor_id) : {BATTERY_PACK_TEMPERATURE}  => (value >= TEMPERATURE_MIN & value <= TEMPERATURE_MAX))
+    THEN
+        inputs_last_value := inputs_last_value \/ {sensor_id |-> value}
+        || sys_start_missing_inputs := sys_start_missing_inputs - {sensor_id}
+        || 
+        IF card(sys_start_missing_inputs) = 1 THEN
+            sys_state := NORMAL
+        END
+    END;
+    
+    /*
+     * Update voltage input value for a Solar Cell Array
+     *
+     * Pre: The system must not be OFF nor in START state
+     *      The sensor id must be valid 
+     *      The voltage value must be a natural within the voltage range
+     *      The difference between the previous and updated values must not be greater than 1V
+     * 
+     * Updates a voltage input value based on sensor id
+     */
+    updateSolarCellArrayVoltage(sensor_id, value) =
+    PRE
+        sys_state /: {OFF, START}
+        & sensor_id : dom(INPUTS)
+        & INPUTS(sensor_id) = SOLAR_CELL_ARRAY_VOLTAGE
+        & value : NATURAL
+        & value /= inputs_last_value(sensor_id)
+        & value >= VOLTAGE_MIN
+        & value <= VOLTAGE_MAX
+        & (inputs_last_value(sensor_id) > value => inputs_last_value(sensor_id)-value = 1)
+        & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 1)
+    THEN
+        inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+    END;
+    
+    /*
+     * Update current input value for a Solar Cell Array
+     *
+     * Pre: The system must not be OFF nor in START state
+     *      The sensor id must be valid 
+     *      The current value must be a natural within the current range
+     *      The difference between the previous and updated values must not be greater than 100mA
+     * 
+     * Updates a current input value based on sensor id
+     */
+    updateSolarCellArrayCurrent(sensor_id, value) =
+    PRE
+        sys_state /: {OFF, START}
+        & sensor_id : dom(INPUTS)
+        & INPUTS(sensor_id) = SOLAR_CELL_ARRAY_CURRENT
+        & value : NATURAL
+        & value /= inputs_last_value(sensor_id)
+        & value >= CURRENT_MIN
+        & value <= CURRENT_MAX
+        & (inputs_last_value(sensor_id) > value => inputs_last_value(sensor_id)-value = 100)
+        & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 100)
+    THEN
+        inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
     END
     
 END
