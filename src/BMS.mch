@@ -4,7 +4,8 @@ MACHINE
     BMS
 DEFINITIONS 
     "INPUTS.def";
-    "SENSORS_RANGE.def"
+    "SENSORS_RANGE.def";
+    "OPERATION_RANGE.def"
 SETS
     SYS_STATES = {
         OFF,
@@ -14,18 +15,27 @@ SETS
         CRITICAL
     };
 
-    INPUTS_TYPE = {
-        SOLAR_CELL_ARRAY_VOLTAGE,
-        SOLAR_CELL_ARRAY_CURRENT,
-        BATTERY_PACK_VOLTAGE,
-        BATTERY_PACK_CURRENT,
-        BATTERY_PACK_TEMPERATURE,
-        SINGLE_BATTERY_VOLTAGE,
-        SINGLE_BATTERY_CURRENT,
-        LOAD_CURRENT_DRAIN
+    UNIT = {
+        SOLAR_CELL_ARRAY,
+        BATTERY_PACK,
+        SINGLE_BATTERY,
+        LOAD
+    };
+
+    UNIT_STATES = {
+        UNIT_NORMAL,
+        UNIT_ISSUE,
+        UNIT_CRITICAL
+    };
+
+    SENSOR_TYPE = {
+        VOLTAGE,
+        CURRENT,
+        TEMPERATURE
     }
 PROPERTIES
-    INPUTS : NATURAL +->> INPUTS_TYPE
+    dom(INPUTS) <: NATURAL
+    //INPUTS : NATURAL +->> (UNIT +-> SENSOR_TYPE) // TODO: add this property
     & ! param . (param : {
             VOLTAGE_MIN,
 	        VOLTAGE_MAX,
@@ -37,34 +47,31 @@ VARIABLES
     sys_state,
     sys_start_missing_inputs,
     
-    inputs_last_value    
+    inputs_last_value,
+    units_state
 INVARIANT
     sys_state : SYS_STATES
     & sys_start_missing_inputs <: dom(INPUTS)
     
     & inputs_last_value : dom(INPUTS) +-> NATURAL
+    & units_state : UNIT --> UNIT_STATES
     
     & sys_start_missing_inputs /\ dom(inputs_last_value) = {}
+    
+    & INPUTS[{1001}][UNIT] = {VOLTAGE}
     
     // Garantee that sensor values does not exceed its range
     & ! (sensor_id, sensor_value) 
         . (sensor_id |-> sensor_value : inputs_last_value 
-            => ((INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_VOLTAGE, 
-                                     BATTERY_PACK_VOLTAGE, 
-                                     SINGLE_BATTERY_VOLTAGE} 
-                    => (sensor_value >= VOLTAGE_MIN & sensor_value <= VOLTAGE_MAX))
-                & (INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_CURRENT, 
-                                        BATTERY_PACK_CURRENT, 
-                                        SINGLE_BATTERY_CURRENT, 
-                                        LOAD_CURRENT_DRAIN} 
-                    => (sensor_value >= CURRENT_MIN & sensor_value <= CURRENT_MAX))
-                & (INPUTS(sensor_id) : {BATTERY_PACK_TEMPERATURE} 
-                    => (sensor_value >= TEMPERATURE_MIN & sensor_value <= TEMPERATURE_MAX))))
+            => (INPUTS[{sensor_id}][UNIT] = {VOLTAGE} => (sensor_value >= VOLTAGE_MIN & sensor_value <= VOLTAGE_MAX))
+                & (INPUTS[{sensor_id}][UNIT] = {CURRENT} => (sensor_value >= CURRENT_MIN & sensor_value <= CURRENT_MAX))
+                & (INPUTS[{sensor_id}][UNIT] = {TEMPERATURE} => (sensor_value >= TEMPERATURE_MIN & sensor_value <= TEMPERATURE_MAX)))
 INITIALISATION
     sys_state := OFF
     || sys_start_missing_inputs := {}
     
     || inputs_last_value := {}
+    || units_state := UNIT * {UNIT_NORMAL}
 OPERATIONS
     /*
      * Turn the system ON
@@ -110,14 +117,9 @@ OPERATIONS
         & sensor_id : dom(INPUTS)
         & sensor_id : sys_start_missing_inputs
         & value : NATURAL
-        & (INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_VOLTAGE, 
-                                BATTERY_PACK_VOLTAGE, 
-                                SINGLE_BATTERY_VOLTAGE}  => (value >= VOLTAGE_MIN & value <= VOLTAGE_MAX))
-        & (INPUTS(sensor_id) : {SOLAR_CELL_ARRAY_CURRENT, 
-                                BATTERY_PACK_CURRENT, 
-                                SINGLE_BATTERY_CURRENT, 
-                                LOAD_CURRENT_DRAIN}  => (value >= CURRENT_MIN & value <= CURRENT_MAX & value mod 100 = 0))
-        & (INPUTS(sensor_id) : {BATTERY_PACK_TEMPERATURE}  => (value >= TEMPERATURE_MIN & value <= TEMPERATURE_MAX))
+        & (INPUTS[{sensor_id}][UNIT] = {VOLTAGE}  => (value >= VOLTAGE_MIN & value <= VOLTAGE_MAX))
+        & (INPUTS[{sensor_id}][UNIT] = {CURRENT}  => (value >= CURRENT_MIN & value <= CURRENT_MAX & value mod 100 = 0))
+        & (INPUTS[{sensor_id}][UNIT] = {TEMPERATURE}  => (value >= TEMPERATURE_MIN & value <= TEMPERATURE_MAX))
     THEN
         inputs_last_value := inputs_last_value \/ {sensor_id |-> value}
         || sys_start_missing_inputs := sys_start_missing_inputs - {sensor_id}
@@ -141,7 +143,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = SOLAR_CELL_ARRAY_VOLTAGE
+        & INPUTS(sensor_id) = (SOLAR_CELL_ARRAY, VOLTAGE)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= VOLTAGE_MIN
@@ -150,6 +152,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 1)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_CRITICAL} // TODO: get unit from INPUTS(sensor_id)
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_NORMAL}
+        END
     END;
     
     /*
@@ -166,7 +176,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = SOLAR_CELL_ARRAY_CURRENT
+        & INPUTS(sensor_id) = (SOLAR_CELL_ARRAY, CURRENT)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= CURRENT_MIN
@@ -176,6 +186,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 100)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_CRITICAL}
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_NORMAL}
+        END
     END;
     
     /*
@@ -192,7 +210,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = BATTERY_PACK_VOLTAGE
+        & INPUTS(sensor_id) = (BATTERY_PACK, VOLTAGE)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= VOLTAGE_MIN
@@ -201,6 +219,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 1)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_CRITICAL}
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_NORMAL}
+        END
     END;
     
     /*
@@ -217,7 +243,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = BATTERY_PACK_CURRENT
+        & INPUTS(sensor_id) = (BATTERY_PACK, CURRENT)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= CURRENT_MIN
@@ -227,6 +253,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 100)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_CRITICAL}
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_NORMAL}
+        END
     END;
     
     /*
@@ -243,7 +277,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = BATTERY_PACK_TEMPERATURE
+        & INPUTS(sensor_id) = (BATTERY_PACK, TEMPERATURE)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= TEMPERATURE_MIN
@@ -252,6 +286,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 1)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_CRITICAL}
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {BATTERY_PACK |-> UNIT_NORMAL}
+        END
     END;
     
     /*
@@ -268,7 +310,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = SINGLE_BATTERY_VOLTAGE
+        & INPUTS(sensor_id) = (SINGLE_BATTERY, VOLTAGE)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= VOLTAGE_MIN
@@ -277,6 +319,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 1)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SINGLE_BATTERY |-> UNIT_CRITICAL}
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SINGLE_BATTERY |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {SINGLE_BATTERY |-> UNIT_NORMAL}
+        END
     END;
     
     /*
@@ -293,7 +343,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = SINGLE_BATTERY_CURRENT
+        & INPUTS(sensor_id) = (SINGLE_BATTERY, CURRENT)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= CURRENT_MIN
@@ -303,6 +353,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 100)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SINGLE_BATTERY |-> UNIT_CRITICAL}
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {SINGLE_BATTERY |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {SINGLE_BATTERY |-> UNIT_NORMAL}
+        END
     END;
     
     /*
@@ -319,7 +377,7 @@ OPERATIONS
     PRE
         sys_state /: {OFF, START}
         & sensor_id : dom(INPUTS)
-        & INPUTS(sensor_id) = LOAD_CURRENT_DRAIN
+        & INPUTS(sensor_id) = (LOAD, CURRENT)
         & value : NATURAL
         & value /= inputs_last_value(sensor_id)
         & value >= CURRENT_MIN
@@ -329,6 +387,14 @@ OPERATIONS
         & (inputs_last_value(sensor_id) < value => value-inputs_last_value(sensor_id) = 100)
     THEN
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
+        ||
+        IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {LOAD |-> UNIT_CRITICAL}
+        ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            units_state := units_state <+ {LOAD |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {LOAD |-> UNIT_NORMAL}
+        END
     END
     
 END
