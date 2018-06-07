@@ -32,6 +32,11 @@ SETS
         VOLTAGE,
         CURRENT,
         TEMPERATURE
+    };
+    
+    SWITCH_STATE = {
+        SWITCH_ON,
+        SWITCH_OFF
     }
 PROPERTIES
     dom(INPUTS) <: NATURAL
@@ -48,10 +53,16 @@ VARIABLES
     sys_start_missing_inputs,
     
     inputs_last_value,
-    units_state
+    units_state,
+    
+    power_mux,
+    
+    load_switch,
+    battery_recharge_switch
 INVARIANT
     sys_state : SYS_STATES
     & sys_start_missing_inputs <: dom(INPUTS)
+    
     
     & inputs_last_value : dom(INPUTS) +-> NATURAL
     & units_state : UNIT --> UNIT_STATES
@@ -66,12 +77,22 @@ INVARIANT
             => (INPUTS[{sensor_id}][UNIT] = {VOLTAGE} => (sensor_value >= VOLTAGE_MIN & sensor_value <= VOLTAGE_MAX))
                 & (INPUTS[{sensor_id}][UNIT] = {CURRENT} => (sensor_value >= CURRENT_MIN & sensor_value <= CURRENT_MAX))
                 & (INPUTS[{sensor_id}][UNIT] = {TEMPERATURE} => (sensor_value >= TEMPERATURE_MIN & sensor_value <= TEMPERATURE_MAX)))
+            
+    & power_mux : (UNIT - {SINGLE_BATTERY}) * (UNIT - {SINGLE_BATTERY})
+    
+    & load_switch : SWITCH_STATE
+    & battery_recharge_switch : SWITCH_STATE
 INITIALISATION
     sys_state := OFF
     || sys_start_missing_inputs := {}
     
     || inputs_last_value := {}
     || units_state := UNIT * {UNIT_NORMAL}
+    
+    || power_mux := (SOLAR_CELL_ARRAY, BATTERY_PACK)
+    
+    || load_switch := SWITCH_OFF
+    || battery_recharge_switch := SWITCH_OFF
 OPERATIONS
     /*
      * Turn the system ON
@@ -154,11 +175,22 @@ OPERATIONS
         inputs_last_value := inputs_last_value <+ {sensor_id |-> value}
         ||
         IF value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
-            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_CRITICAL} // TODO: get unit from INPUTS(sensor_id)
+            units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_CRITICAL} // TODO: get unit from INPUTS(sensor_id) and make one single generic update operation, is it possible?
         ELSIF value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
             units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_ISSUE}
         ELSE
             units_state := units_state <+ {SOLAR_CELL_ARRAY |-> UNIT_NORMAL}
+        END
+        ||
+        IF UNIT_CRITICAL : ran(units_state) or value >= UNIT_CRITICAL_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            sys_state := CRITICAL
+            || load_switch := SWITCH_OFF
+            || battery_recharge_switch := SWITCH_OFF
+        ELSIF UNIT_ISSUE : ran(units_state) or value >= UNIT_ISSUE_LOWER_THRESHOLD(INPUTS(sensor_id)) THEN
+            sys_state := ISSUE // Coming from Critical to Issue, what state should the load/battery switches be? Save previous state or recalculate?
+        ELSE
+            // Normal operation
+            sys_state := NORMAL
         END
     END;
     
