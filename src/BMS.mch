@@ -183,6 +183,7 @@ OPERATIONS
     THEN
         sys_state := OFF
                     
+        || units_state := UNIT * {UNIT_NORMAL}
         || sys_start_missing_inputs := UNIT
         || inputs_last_value := {}
         || power_mux := {SOLAR_CELL_ARRAY, BATTERY_PACK}
@@ -719,6 +720,7 @@ OPERATIONS
         & load_user_switch /= SWITCH_OFF
     THEN
         load_user_switch := SWITCH_OFF
+        || units_state := units_state <+ {LOAD |-> UNIT_NORMAL}
         || inputs_last_value := inputs_last_value <+ {LOAD |-> {CURRENT |-> 0}}
     END
     
