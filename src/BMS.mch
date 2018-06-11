@@ -37,6 +37,13 @@ SETS
     SWITCH_STATE = {
         SWITCH_ON,
         SWITCH_OFF
+    };
+    
+    FAN_SPEED = {
+       FAN_STOP,
+       FAN_LOW,
+       FAN_MID,
+       FAN_HIGH
     }
 CONSTANTS
 	UNIT_ISSUE_LOWER_THRESHOLD,
@@ -51,45 +58,30 @@ PROPERTIES
         	TEMPERATURE_MAX} => param : NATURAL)
  
     & UNIT_ISSUE_LOWER_THRESHOLD = {
-		(SOLAR_CELL_ARRAY, (VOLTAGE, 12)),
-        (SOLAR_CELL_ARRAY, (CURRENT, 600)),
-        (BATTERY_PACK, (VOLTAGE, 12)),
-        (BATTERY_PACK, (CURRENT, 400)),
+		(SOLAR_CELL_ARRAY, (VOLTAGE, 3)),
+        (SOLAR_CELL_ARRAY, (CURRENT, 300)),
+        (BATTERY_PACK, (VOLTAGE, 3)),
+        (BATTERY_PACK, (CURRENT, 300)),
         (BATTERY_PACK, (TEMPERATURE, 30)),
-        (SINGLE_BATTERY_1, (VOLTAGE, 3)),
-        (SINGLE_BATTERY_1, (CURRENT, 100)),
-        (SINGLE_BATTERY_2, (VOLTAGE, 3)),
-        (SINGLE_BATTERY_2, (CURRENT, 100)),
+        (SINGLE_BATTERY_1, (VOLTAGE, 2)),
+        (SINGLE_BATTERY_1, (CURRENT, 200)),
+        (SINGLE_BATTERY_2, (VOLTAGE, 2)),
+        (SINGLE_BATTERY_2, (CURRENT, 300)),
         (LOAD, (CURRENT, 300))
 	}
     	
 	& UNIT_CRITICAL_LOWER_THRESHOLD = {
-		(SOLAR_CELL_ARRAY, (VOLTAGE, 14)),
-        (SOLAR_CELL_ARRAY, (CURRENT, 700)),
-        (BATTERY_PACK, (VOLTAGE, 14)),
-        (BATTERY_PACK, (CURRENT, 480)),
+		(SOLAR_CELL_ARRAY, (VOLTAGE, 4)),
+        (SOLAR_CELL_ARRAY, (CURRENT, 400)),
+        (BATTERY_PACK, (VOLTAGE, 4)),
+        (BATTERY_PACK, (CURRENT, 400)),
         (BATTERY_PACK, (TEMPERATURE, 40)),
-        (SINGLE_BATTERY_1, (VOLTAGE, 4)),
-        (SINGLE_BATTERY_1, (CURRENT, 120)),
-        (SINGLE_BATTERY_2, (VOLTAGE, 4)),
-        (SINGLE_BATTERY_2, (CURRENT, 120)),
-        (LOAD, (CURRENT, 350))
+        (SINGLE_BATTERY_1, (VOLTAGE, 3)),
+        (SINGLE_BATTERY_1, (CURRENT, 300)),
+        (SINGLE_BATTERY_2, (VOLTAGE, 3)),
+        (SINGLE_BATTERY_2, (CURRENT, 300)),
+        (LOAD, (CURRENT, 400))
 	}
-
- /*
-    & UNIT_ISSUE_LOWER_THRESHOLD : UNIT +-> (SENSOR_TYPE +-> NATURAL)
-    & UNIT_ISSUE_LOWER_THRESHOLD(SOLAR_CELL_ARRAY) = {VOLTAGE |-> 12, CURRENT |-> 600}
-    & UNIT_ISSUE_LOWER_THRESHOLD(BATTERY_PACK) = {VOLTAGE |-> 12, CURRENT |-> 400, TEMPERATURE |-> 30}
-    & UNIT_ISSUE_LOWER_THRESHOLD(SINGLE_BATTERY_1) = {VOLTAGE |-> 3, CURRENT |-> 100}
-    & UNIT_ISSUE_LOWER_THRESHOLD(SINGLE_BATTERY_2) = {VOLTAGE |-> 3, CURRENT |-> 100}
-    & UNIT_ISSUE_LOWER_THRESHOLD(LOAD) = {CURRENT |-> 300}
- 
-    & UNIT_CRITICAL_LOWER_THRESHOLD : UNIT +-> (SENSOR_TYPE +-> NATURAL)
-    & UNIT_ISSUE_LOWER_THRESHOLD(SOLAR_CELL_ARRAY) = {VOLTAGE |-> 14, CURRENT |-> 700}
-    & UNIT_ISSUE_LOWER_THRESHOLD(BATTERY_PACK) = {VOLTAGE |-> 110, CURRENT |-> 480, TEMPERATURE |-> 40}
-    & UNIT_ISSUE_LOWER_THRESHOLD(SINGLE_BATTERY_1) = {VOLTAGE |-> 4, CURRENT |-> 120}
-    & UNIT_ISSUE_LOWER_THRESHOLD(SINGLE_BATTERY_2) = {VOLTAGE |-> 4, CURRENT |-> 120}
-    & UNIT_ISSUE_LOWER_THRESHOLD(LOAD) = {CURRENT |-> 350}*/
 VARIABLES
     sys_state,
     sys_start_missing_inputs,
@@ -102,7 +94,13 @@ VARIABLES
     load_user_switch,
     load_kill_switch,
     load_switch,
-    battery_switch
+    battery_switch,
+    
+    fan_speed,
+    
+    battery_unbalanced,
+    
+    charging_attempts_counts
 INVARIANT
     sys_state : SYS_STATES
     & sys_start_missing_inputs <: UNIT
@@ -142,9 +140,13 @@ INVARIANT
     
     // Garantee the solar cell is not being used when CRITICAL
     & ((units_state[{SOLAR_CELL_ARRAY}] /\ {UNIT_CRITICAL} /= {}) => (SOLAR_CELL_ARRAY : power_mux => (battery_switch = SWITCH_OFF & load_switch = SWITCH_OFF)))
+    
+    & fan_speed : FAN_SPEED
+    & battery_unbalanced : BOOL
+    & charging_attempts_counts : NATURAL
 INITIALISATION
     sys_state := OFF
-    || sys_start_missing_inputs := {}
+    || sys_start_missing_inputs := UNIT
     
     || inputs_last_value := {}
     || units_state := UNIT * {UNIT_NORMAL}
@@ -155,6 +157,10 @@ INITIALISATION
     || load_kill_switch := SWITCH_OFF
     || load_user_switch := SWITCH_OFF
     || battery_switch := SWITCH_OFF
+    
+    || fan_speed := FAN_STOP
+    || battery_unbalanced := FALSE
+	|| charging_attempts_counts := 0
 OPERATIONS
     /*
      * Turn the system ON
@@ -168,6 +174,7 @@ OPERATIONS
         sys_state = OFF
     THEN
         sys_state := START
+        || sys_start_missing_inputs := UNIT
     END;
     
     /*
@@ -191,6 +198,9 @@ OPERATIONS
         || load_kill_switch := SWITCH_OFF
         || load_user_switch := SWITCH_OFF
         || battery_switch := SWITCH_OFF
+        || fan_speed := FAN_STOP
+        || battery_unbalanced := FALSE
+        || charging_attempts_counts := 0
     END;
     
     /*
@@ -225,6 +235,9 @@ OPERATIONS
             || load_kill_switch := SWITCH_OFF
             || load_user_switch := SWITCH_OFF
             || battery_switch := SWITCH_OFF
+            || fan_speed := FAN_STOP
+            || battery_unbalanced := FALSE
+            || charging_attempts_counts := 0
         END
     END;
     
@@ -263,6 +276,9 @@ OPERATIONS
             || load_kill_switch := SWITCH_OFF
             || load_user_switch := SWITCH_OFF
             || battery_switch := SWITCH_OFF
+            || fan_speed := FAN_STOP
+            || battery_unbalanced := FALSE
+            || charging_attempts_counts := 0
         END
     END;
     
@@ -298,6 +314,9 @@ OPERATIONS
             || load_kill_switch := SWITCH_OFF
             || load_user_switch := SWITCH_OFF
             || battery_switch := SWITCH_OFF
+            || fan_speed := FAN_STOP
+            || battery_unbalanced := FALSE
+            || charging_attempts_counts := 0
         END
     END;
     
@@ -331,6 +350,9 @@ OPERATIONS
             || load_kill_switch := SWITCH_OFF
             || load_user_switch := SWITCH_OFF
             || battery_switch := SWITCH_OFF
+            || fan_speed := FAN_STOP
+            || battery_unbalanced := FALSE
+            || charging_attempts_counts := 0
         END
     END;
     
@@ -345,9 +367,6 @@ OPERATIONS
      *      The difference between the previous and updated current values must not be greater than 100mA
      * 
      * Updates input values based for a unit
-     *
-     * Possible Outcomes:
-     *    - Solar Cell Array voltage is too high or too low: the unit enter ISSUE or CRITICAL state and all power switches are turned down
      */
     updateSolarCellArray(unit, voltage, current) =
     PRE
@@ -360,10 +379,11 @@ OPERATIONS
         & current >= CURRENT_MIN 
         & current <= CURRENT_MAX 
         & current mod 100 = 0
-        & (inputs_last_value(unit)(VOLTAGE) > voltage => inputs_last_value(unit)(VOLTAGE)-voltage = 1)
-        & (inputs_last_value(unit)(VOLTAGE) < voltage => voltage-inputs_last_value(unit)(VOLTAGE) = 1)
+        & (inputs_last_value(unit)(VOLTAGE) > voltage => inputs_last_value(unit)(VOLTAGE)-voltage <= 1)
+        & (inputs_last_value(unit)(VOLTAGE) <= voltage => voltage-inputs_last_value(unit)(VOLTAGE) <= 1)
         & (inputs_last_value(unit)(CURRENT) > current => inputs_last_value(unit)(CURRENT)-current <= 100)
-        & (inputs_last_value(unit)(CURRENT) < current => current-inputs_last_value(unit)(CURRENT) <= 100)
+        & (inputs_last_value(unit)(CURRENT) <= current => current-inputs_last_value(unit)(CURRENT) <= 100)
+        & inputs_last_value(unit) /= {VOLTAGE |-> voltage, CURRENT |-> current}
     THEN
         // Updates unit sensor values
         inputs_last_value := inputs_last_value <+ {unit |-> {VOLTAGE |-> voltage, CURRENT |-> current}}
@@ -382,14 +402,14 @@ OPERATIONS
         END
         ||
         // Updates system state based on current conditions
-        IF UNIT_CRITICAL : ran(units_state) 
+        IF UNIT_CRITICAL : units_state[UNIT - {unit}]
             or voltage >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](VOLTAGE) 
             or current >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](CURRENT) 
         THEN
             // Critical state
             sys_state := CRITICAL
             || load_kill_switch := SWITCH_ON
-        ELSIF UNIT_ISSUE : ran(units_state) 
+        ELSIF UNIT_ISSUE : units_state[UNIT - {unit}]
             or voltage >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](VOLTAGE) 
             or current >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](CURRENT) 
         THEN
@@ -445,13 +465,95 @@ OPERATIONS
             //     - Solar Cell Array is producing any power with voltage over the battery voltage
             //     - Battery pack is not on critical condition
             power_mux := {SOLAR_CELL_ARRAY, BATTERY_PACK}
-            || battery_switch := SWITCH_ON
             || load_switch := SWITCH_OFF
+            ||
+            IF battery_switch = SWITCH_OFF
+			THEN
+				battery_switch := SWITCH_ON
+				|| charging_attempts_counts := charging_attempts_counts + 1
+			END
         ELSIF SOLAR_CELL_ARRAY : power_mux
         THEN
         // If no operations are avaiable for the solar cell array, but it is selected on the mux, turn the switches off
             battery_switch := SWITCH_OFF
             || load_switch := SWITCH_OFF
+        END
+    END;
+    
+    /*
+     * Update input values for a Single Battery Pack
+     *
+     * Pre: The system must not be OFF nor in START state
+     *      The unit must be a single battery
+     *      The voltage value must be a natural within the voltage range
+     *      The current value must be a natural within the current range
+     *      The difference between the previous and updated voltage values must not be greater than 1V
+     *      The difference between the previous and updated current values must not be greater than 100mA
+     * 
+     * Updates input values based for a unit
+     */
+    updateSingleBattery(unit, voltage, current) =
+    PRE
+        sys_state /: {OFF, START}
+        & unit : {SINGLE_BATTERY_1, SINGLE_BATTERY_2}
+        & voltage : NATURAL
+        & voltage >= VOLTAGE_MIN 
+        & voltage <= VOLTAGE_MAX
+        & current : NATURAL
+        & current >= CURRENT_MIN 
+        & current <= CURRENT_MAX 
+        & current mod 100 = 0
+        & (inputs_last_value(unit)(VOLTAGE) > voltage => inputs_last_value(unit)(VOLTAGE)-voltage <= 1)
+        & (inputs_last_value(unit)(VOLTAGE) <= voltage => voltage-inputs_last_value(unit)(VOLTAGE) <= 1)
+        & (inputs_last_value(unit)(CURRENT) > current => inputs_last_value(unit)(CURRENT)-current <= 100)
+        & (inputs_last_value(unit)(CURRENT) <= current => current-inputs_last_value(unit)(CURRENT) <= 100)
+        & inputs_last_value(unit) /= {VOLTAGE |-> voltage, CURRENT |-> current}
+    THEN
+        // Updates unit sensor values
+        inputs_last_value := inputs_last_value <+ {unit |-> {VOLTAGE |-> voltage, CURRENT |-> current}}
+        ||
+        // Updates unit current state
+        IF voltage >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](VOLTAGE)
+            or current >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](CURRENT)
+        THEN
+            units_state := units_state <+ {unit |-> UNIT_CRITICAL}
+        ELSIF voltage >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](VOLTAGE) 
+            or current >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](CURRENT) 
+        THEN
+            units_state := units_state <+ {unit |-> UNIT_ISSUE}
+        ELSE
+            units_state := units_state <+ {unit |-> UNIT_NORMAL}
+        END
+        ||
+        // Updates system state based on current conditions
+        IF UNIT_CRITICAL : units_state[UNIT - {unit}]
+            or voltage >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](VOLTAGE) 
+            or current >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](CURRENT)
+        THEN
+            // Critical state
+            sys_state := CRITICAL
+            || load_kill_switch := SWITCH_ON
+        ELSIF UNIT_ISSUE : units_state[UNIT - {unit}]
+            or voltage >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](VOLTAGE) 
+            or current >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](CURRENT) 
+        THEN
+            // Issue state
+            sys_state := ISSUE
+            || load_kill_switch := SWITCH_OFF
+        ELSE
+            // Normal operation
+            sys_state := NORMAL
+            || load_kill_switch := SWITCH_OFF
+        END
+        ||
+        IF (# battery . 
+                (battery : inputs_last_value[{SINGLE_BATTERY_1, SINGLE_BATTERY_2} - {unit}]
+                    & ((voltage > battery(VOLTAGE) => voltage - battery(VOLTAGE) >= 1)
+                        & (battery(VOLTAGE) >= voltage => battery(VOLTAGE) - voltage >= 1))))
+        THEN
+            battery_unbalanced := TRUE
+        ELSE
+            battery_unbalanced := FALSE
         END
     END;
     
@@ -465,11 +567,9 @@ OPERATIONS
      *      The temperature value must be a natural within the temprature range
      *      The difference between the previous and updated voltage values must not be greater than 1V
      *      The difference between the previous and updated current values must not be greater than 100mA
-     *      The difference between the previous and updated temperature values must not be greater than 1ºC
+     *      The difference between the previous and updated temperature values must not be greater than 10ºC
      * 
      * Updates input values based for a unit
-     *
-     * Possible Outcomes:
      */
     updateBatteryPack(unit, voltage, current, temperature) =
     PRE
@@ -485,12 +585,14 @@ OPERATIONS
         & temperature : NATURAL
         & temperature >= TEMPERATURE_MIN 
         & temperature <= TEMPERATURE_MAX 
-        & (inputs_last_value(unit)(VOLTAGE) > voltage => inputs_last_value(unit)(VOLTAGE)-voltage = 1)
-        & (inputs_last_value(unit)(VOLTAGE) < voltage => voltage-inputs_last_value(unit)(VOLTAGE) = 1)
+        & temperature mod 10 = 0
+        & (inputs_last_value(unit)(VOLTAGE) > voltage => inputs_last_value(unit)(VOLTAGE)-voltage <= 1)
+        & (inputs_last_value(unit)(VOLTAGE) <= voltage => voltage-inputs_last_value(unit)(VOLTAGE) <= 1)
         & (inputs_last_value(unit)(CURRENT) > current => inputs_last_value(unit)(CURRENT)-current <= 100)
-        & (inputs_last_value(unit)(CURRENT) < current => current-inputs_last_value(unit)(CURRENT) <= 100)
-        & (inputs_last_value(unit)(TEMPERATURE) > temperature => inputs_last_value(unit)(TEMPERATURE)-temperature = 1)
-        & (inputs_last_value(unit)(TEMPERATURE) < temperature => temperature-inputs_last_value(unit)(TEMPERATURE) = 1)
+        & (inputs_last_value(unit)(CURRENT) <= current => current-inputs_last_value(unit)(CURRENT) <= 100)
+        & (inputs_last_value(unit)(TEMPERATURE) > temperature => inputs_last_value(unit)(TEMPERATURE)-temperature <= 10)
+        & (inputs_last_value(unit)(TEMPERATURE) <= temperature => temperature-inputs_last_value(unit)(TEMPERATURE) <= 10)
+        & inputs_last_value(unit) /= {VOLTAGE |-> voltage, CURRENT |-> current, TEMPERATURE |-> temperature}
     THEN
         // Updates unit sensor values
         inputs_last_value := inputs_last_value <+ {unit |-> {VOLTAGE |-> voltage, CURRENT |-> current, TEMPERATURE |-> temperature}}
@@ -511,7 +613,7 @@ OPERATIONS
         END
         ||
         // Updates system state based on current conditions
-        IF UNIT_CRITICAL : ran(units_state) 
+        IF UNIT_CRITICAL : units_state[UNIT - {unit}]
             or voltage >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](VOLTAGE) 
             or current >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](CURRENT) 
             or temperature >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](TEMPERATURE) 
@@ -519,7 +621,7 @@ OPERATIONS
             // Critical state
             sys_state := CRITICAL
             || load_kill_switch := SWITCH_ON
-        ELSIF UNIT_ISSUE : ran(units_state) 
+        ELSIF UNIT_ISSUE : units_state[UNIT - {unit}]
             or voltage >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](VOLTAGE) 
             or current >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](CURRENT) 
             or temperature >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](TEMPERATURE) 
@@ -551,8 +653,13 @@ OPERATIONS
             //     - Solar Cell Array is not on critical condition
             //     - Battery pack is not on critical state
             power_mux := {SOLAR_CELL_ARRAY, BATTERY_PACK}
-            || battery_switch := SWITCH_ON
             || load_switch := SWITCH_OFF
+            ||
+            IF battery_switch = SWITCH_OFF
+			THEN
+				battery_switch := SWITCH_ON
+				|| charging_attempts_counts := charging_attempts_counts + 1
+			END
         ELSIF load_user_switch = SWITCH_ON
             & load_kill_switch = SWITCH_OFF
             
@@ -561,10 +668,9 @@ OPERATIONS
             & voltage >= LOAD_VOLTAGE
             
             & (voltage*current) >= (LOAD_VOLTAGE*inputs_last_value(LOAD)(CURRENT))
-            & voltage >= LOAD_VOLTAGE
             
             & inputs_last_value(SOLAR_CELL_ARRAY)(VOLTAGE) >= LOAD_VOLTAGE
-            & (inputs_last_value(SOLAR_CELL_ARRAY)(VOLTAGE)*inputs_last_value(SOLAR_CELL_ARRAY)(CURRENT)) >= (LOAD_VOLTAGE*inputs_last_value(LOAD)(CURRENT))
+            & (inputs_last_value(SOLAR_CELL_ARRAY)(VOLTAGE)*inputs_last_value(SOLAR_CELL_ARRAY)(CURRENT)) < (LOAD_VOLTAGE*inputs_last_value(LOAD)(CURRENT))
             
             & units_state(LOAD) /= UNIT_CRITICAL
             
@@ -588,6 +694,20 @@ OPERATIONS
             // If no operations are avaiable for the battery, turn it off
             battery_switch := SWITCH_OFF
         END
+        ||
+        // Updates fan state
+        IF temperature >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](TEMPERATURE) 
+        THEN
+            fan_speed := FAN_HIGH
+        ELSIF temperature >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](TEMPERATURE) 
+        THEN
+            fan_speed := FAN_MID
+        ELSIF temperature > 0
+        THEN
+            fan_speed := FAN_LOW
+        ELSE
+            fan_speed := FAN_STOP
+        END
     END;
     
     /*
@@ -600,8 +720,6 @@ OPERATIONS
      *      The difference between the previous and updated current values must not be greater than 100mA
      * 
      * Updates input values based for a unit
-     *
-     * Possible Outcomes:
      */
     updateLoad(unit, current) =
     PRE
@@ -613,7 +731,8 @@ OPERATIONS
         & current <= CURRENT_MAX 
         & current mod 100 = 0
         & (inputs_last_value(unit)(CURRENT) > current => inputs_last_value(unit)(CURRENT)-current <= 100)
-        & (inputs_last_value(unit)(CURRENT) < current => current-inputs_last_value(unit)(CURRENT) <= 100)
+        & (inputs_last_value(unit)(CURRENT) <= current => current-inputs_last_value(unit)(CURRENT) <= 100)
+        & inputs_last_value(unit) /= {CURRENT |-> current}
         & (load_user_switch = SWITCH_OFF => current = 0)
     THEN
         // Updates unit sensor values
@@ -631,13 +750,13 @@ OPERATIONS
         END
         ||
         // Updates system state based on current conditions
-        IF UNIT_CRITICAL : ran(units_state) 
+        IF UNIT_CRITICAL : units_state[UNIT - {unit}] 
             or current >= UNIT_CRITICAL_LOWER_THRESHOLD[{unit}](CURRENT) 
         THEN
             // Critical state
             sys_state := CRITICAL
             || load_kill_switch := SWITCH_ON
-        ELSIF UNIT_ISSUE : ran(units_state) 
+        ELSIF UNIT_ISSUE : units_state[UNIT - {unit}]
             or current >= UNIT_ISSUE_LOWER_THRESHOLD[{unit}](CURRENT) 
         THEN
             // Issue state
