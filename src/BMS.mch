@@ -846,8 +846,57 @@ OPERATIONS
         & load_user_switch /= SWITCH_ON
     THEN
         load_user_switch := SWITCH_ON
-		|| load_switch := SWITCH_OFF
-		|| battery_switch := SWITCH_OFF
+		||
+		IF load_kill_switch = SWITCH_OFF
+            & inputs_last_value(SOLAR_CELL_ARRAY)(VOLTAGE) >= LOAD_VOLTAGE
+            & units_state(SOLAR_CELL_ARRAY) /= UNIT_CRITICAL
+        THEN
+            // Switch to solar cell supply:
+            //     - Load is ON and NOT Killed by critical condition
+            //     - Solar Cell Array voltage is enough
+            //     - Solar Cell Array is not on critical condition
+            power_mux := {SOLAR_CELL_ARRAY, LOAD}
+            || load_switch := SWITCH_ON
+            || battery_switch := SWITCH_OFF
+        ELSIF load_kill_switch = SWITCH_OFF
+            & inputs_last_value(BATTERY_PACK)(VOLTAGE) >= LOAD_VOLTAGE
+            & units_state(BATTERY_PACK) /= UNIT_CRITICAL
+        THEN
+            // Switch to battery supply:
+            //     - Load is ON and NOT Killed by critical condition
+            //     - Battery Pack voltage is enough
+            //     - Battery Pack is not on critical condition
+            power_mux := {BATTERY_PACK, LOAD}
+            || load_switch := SWITCH_ON
+            || battery_switch := SWITCH_ON
+        ELSIF load_kill_switch = SWITCH_ON
+            
+            & inputs_last_value(BATTERY_PACK)(VOLTAGE) < UNIT_ISSUE_LOWER_THRESHOLD[{BATTERY_PACK}](VOLTAGE)
+            
+            & inputs_last_value(SOLAR_CELL_ARRAY)(VOLTAGE) > inputs_last_value(BATTERY_PACK)(VOLTAGE)
+			
+            & units_state(BATTERY_PACK) /= UNIT_CRITICAL
+            & units_state(SOLAR_CELL_ARRAY) /= UNIT_CRITICAL
+        THEN
+            // Recharge battery when:
+            //     - Load is OFF or is Killed by critical condition
+            //     - Battery voltage is lower than battery ISSUE threshold
+            //     - Solar Cell Array voltage is higher than battery voltage
+            //     - Solar Cell Array is not on CRITICAL conditions
+            //     - Battery pack is not on CRITICAL conditions
+            power_mux := {SOLAR_CELL_ARRAY, BATTERY_PACK}
+            || load_switch := SWITCH_OFF
+            ||
+            IF battery_switch = SWITCH_OFF
+			THEN
+				battery_switch := SWITCH_ON
+				|| charging_attempts_counts := max({5, charging_attempts_counts + 1})
+			END
+        ELSE
+            // If no operations are avaiable for the load, turn it off
+            load_switch := SWITCH_OFF
+			|| battery_switch := SWITCH_OFF
+        END
     END;
     
     
@@ -889,6 +938,9 @@ OPERATIONS
 				battery_switch := SWITCH_ON
 				|| charging_attempts_counts := max({5, charging_attempts_counts + 1})
 			END
+		ELSE
+			load_switch := SWITCH_OFF
+			|| battery_switch := SWITCH_OFF
 		END
     END
     
