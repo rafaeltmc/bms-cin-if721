@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   version="1.1"
+   width="800"
+   height="600">
+  <g
+     id="main_view">
+    <image
+       xlink:href="images/background.svg"
+       x="0"
+       y="0"
+       width="800"
+       height="600" />
+    <image
+       xlink:href="images/sky-clear.svg"
+       x="0"
+       y="0"
+       width="800"
+       height="65"
+       id="sky" />
+	   
+    <image
+       xlink:href="images/car-dash.svg"
+       x="220"
+       y="260"
+       width="392"
+       height="228" />
+    <image
+       xlink:href="images/controls-background.svg"
+       x="220"
+       y="500"
+       width="392"
+       height="52" />
+    <image
+       xlink:href="images/start-stop-off.svg"
+       x="555"
+       y="503"
+       width="45"
+       height="45"
+       id="car-start-stop" />
+    <image
+       xlink:href="images/accelerator.svg"
+       x="515"
+       y="500"
+       width="15"
+       height="50"
+       id="car-pedal-accelerator" />
+    <image
+       xlink:href="images/break.svg"
+       x="495"
+       y="500"
+       width="15"
+       height="50"
+       id="car-pedal-break" />
+    <image
+       xlink:href="images/solar-power-off.svg"
+       x="335"
+       y="410"
+       width="15"
+       height="15"
+       id="power-solar" />
+    <image
+       xlink:href="images/battery-power-off.svg"
+       x="355"
+       y="410"
+       width="15"
+       height="15"
+       id="power-battery" />
+	   
+	   
+    <image
+       xlink:href="images/sys-state-off.svg"
+       x="405"
+       y="370"
+       width="20"
+       height="20"
+       id="system-state" />
+    <image
+       xlink:href="images/system-off.svg"
+       x="235"
+       y="505"
+       width="20"
+       height="40"
+       id="system-switch" />
+  </g>
+</svg>

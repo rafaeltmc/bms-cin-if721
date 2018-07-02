@@ -1,0 +1,10 @@
+{
+  "model": "../src/BMS.mch",
+  "id": "batteryms",
+  "name": "BMS visualization",
+  "template": "batteryms.html",
+  "autoOpen": [
+    "CurrentTrace",
+    "Events"
+  ]
+}
